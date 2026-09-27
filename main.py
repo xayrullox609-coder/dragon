@@ -1696,3 +1696,567 @@ async def order_details_handler(
     )
 
     await callback.answer()
+# ============================================================
+# REYTING
+# ============================================================
+
+@dp.callback_query(
+    F.data == "rating"
+)
+async def rating_handler(
+    callback: CallbackQuery
+):
+
+    users = get_top_users(
+        limit=10
+    )
+
+    if not users:
+
+        await callback.message.edit_text(
+            "🏆 <b>Reyting</b>\n\n"
+            "Hozircha foydalanuvchilar yo‘q.",
+            reply_markup=back_button(),
+            parse_mode="HTML"
+        )
+
+        await callback.answer()
+
+        return
+
+    lines = [
+        "🏆 <b>TOP 10 REYTING</b>\n"
+    ]
+
+    medals = [
+        "🥇",
+        "🥈",
+        "🥉",
+        "4️⃣",
+        "5️⃣",
+        "6️⃣",
+        "7️⃣",
+        "8️⃣",
+        "9️⃣",
+        "🔟"
+    ]
+
+    for index, user in enumerate(users):
+
+        medal = medals[index]
+
+        first_name = (
+            user["first_name"]
+            or "Foydalanuvchi"
+        )
+
+        username = user["username"]
+
+        if username:
+
+            name = (
+                f'<a href="tg://user?id={user["telegram_id"]}">'
+                f'{first_name}</a>'
+            )
+
+        else:
+
+            name = (
+                f'<a href="tg://user?id={user["telegram_id"]}">'
+                f'{first_name}</a>'
+            )
+
+        coins = int(
+            user["coins"] or 0
+        )
+
+        lines.append(
+            f"{medal} {name} — "
+            f"<b>{coins:,} 🪙</b>"
+        )
+
+    text = "\n".join(
+        lines
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_button(),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# TAKLIF QILISH
+# ============================================================
+
+@dp.callback_query(
+    F.data == "referral"
+)
+async def referral_handler(
+    callback: CallbackQuery
+):
+
+    user_id = callback.from_user.id
+
+    user = get_user(
+        user_id
+    )
+
+    if not user:
+
+        add_user(
+            telegram_id=user_id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name
+        )
+
+        user = get_user(
+            user_id
+        )
+
+    referral_count = int(
+        user["referral_count"] or 0
+    )
+
+    try:
+
+        me = await bot.get_me()
+
+        bot_username = me.username
+
+    except Exception:
+
+        bot_username = None
+
+    if bot_username:
+
+        referral_link = (
+            f"https://t.me/"
+            f"{bot_username}"
+            f"?start=ref_{user_id}"
+        )
+
+    else:
+
+        referral_link = (
+            f"/start ref_{user_id}"
+        )
+
+    text = (
+        "👥 <b>Taklif qilish</b>\n\n"
+
+        f"🎁 Har bir taklif uchun: "
+        f"<b>{REFERRAL_BONUS} 🪙</b>\n\n"
+
+        f"👥 Taklif qilganlaringiz: "
+        f"<b>{referral_count}</b>\n\n"
+
+        "🔗 <b>Sizning referral havolangiz:</b>\n\n"
+
+        f"<code>{referral_link}</code>\n\n"
+
+        "Havolani do‘stlaringizga yuboring."
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="📤 Havolani ulashish",
+                    switch_inline_query=(
+                        "Meni shu bot orqali "
+                        "qo‘shiling!"
+                    )
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Orqaga",
+                    callback_data="back_main"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# VIP
+# ============================================================
+
+@dp.callback_query(
+    F.data == "vip"
+)
+async def vip_handler(
+    callback: CallbackQuery
+):
+
+    user_id = callback.from_user.id
+
+    if is_vip(
+        user_id
+    ):
+
+        text = (
+            "👑 <b>Siz allaqachon VIPsiz!</b>\n\n"
+
+            "VIP status hisobingizga faol."
+        )
+
+        keyboard = back_button()
+
+    else:
+
+        balance = get_balance(
+            user_id
+        )
+
+        text = (
+            "👑 <b>VIP STATUS</b>\n\n"
+
+            f"💰 VIP narxi: "
+            f"<b>{VIP_PRICE_COINS:,} 🪙</b>\n\n"
+
+            "VIP imkoniyatlari:\n"
+            "✨ Maxsus VIP status\n"
+            "🚀 VIP xizmatlar\n"
+            "🎁 Qo‘shimcha imkoniyatlar\n\n"
+
+            f"💰 Sizning balansingiz: "
+            f"<b>{balance:,} 🪙</b>"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+
+                [
+                    InlineKeyboardButton(
+                        text="👑 VIP sotib olish",
+                        callback_data="buy_vip"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        text="⭐ Balansni to‘ldirish",
+                        callback_data="stars"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ Orqaga",
+                        callback_data="back_main"
+                    )
+                ]
+            ]
+        )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# VIP SOTIB OLISH
+# ============================================================
+
+@dp.callback_query(
+    F.data == "buy_vip"
+)
+async def buy_vip_handler(
+    callback: CallbackQuery
+):
+
+    user_id = callback.from_user.id
+
+    if is_vip(
+        user_id
+    ):
+
+        await callback.answer(
+            "👑 Siz allaqachon VIPsiz!",
+            show_alert=True
+        )
+
+        return
+
+    balance = get_balance(
+        user_id
+    )
+
+    if balance < VIP_PRICE_COINS:
+
+        missing = (
+            VIP_PRICE_COINS - balance
+        )
+
+        text = (
+            "❌ <b>Balans yetarli emas.</b>\n\n"
+
+            f"👑 VIP narxi: "
+            f"<b>{VIP_PRICE_COINS:,} 🪙</b>\n"
+
+            f"💰 Balansingiz: "
+            f"<b>{balance:,} 🪙</b>\n\n"
+
+            f"➕ Yetishmaydi: "
+            f"<b>{missing:,} 🪙</b>"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+
+                [
+                    InlineKeyboardButton(
+                        text="⭐ Stars orqali to‘ldirish",
+                        callback_data="stars"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ Orqaga",
+                        callback_data="vip"
+                    )
+                ]
+            ]
+        )
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+        await callback.answer()
+
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="✅ VIPni sotib olish",
+                    callback_data="confirm_vip"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="❌ Bekor qilish",
+                    callback_data="vip"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        "👑 <b>VIP sotib olish</b>\n\n"
+
+        f"💰 Narxi: "
+        f"<b>{VIP_PRICE_COINS:,} 🪙</b>\n\n"
+
+        "Sotib olgandan so‘ng tanga balansingizdan "
+        "yechiladi.\n\n"
+
+        "Davom etasizmi?",
+
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# VIP TASDIQLASH
+# ============================================================
+
+@dp.callback_query(
+    F.data == "confirm_vip"
+)
+async def confirm_vip_handler(
+    callback: CallbackQuery
+):
+
+    user_id = callback.from_user.id
+
+    if is_vip(
+        user_id
+    ):
+
+        await callback.answer(
+            "👑 Siz allaqachon VIPsiz!",
+            show_alert=True
+        )
+
+        return
+
+    balance = get_balance(
+        user_id
+    )
+
+    if balance < VIP_PRICE_COINS:
+
+        await callback.answer(
+            "❌ Balansingiz yetarli emas.",
+            show_alert=True
+        )
+
+        return
+
+    removed = remove_coins(
+        telegram_id=user_id,
+        amount=VIP_PRICE_COINS,
+        history_type="vip",
+        description="VIP sotib olindi"
+    )
+
+    if not removed:
+
+        await callback.answer(
+            "❌ Tanga yechishda xatolik.",
+            show_alert=True
+        )
+
+        return
+
+    set_vip(
+        user_id,
+        True
+    )
+
+    new_balance = get_balance(
+        user_id
+    )
+
+    text = (
+        "🎉 <b>VIP muvaffaqiyatli faollashtirildi!</b>\n\n"
+
+        "👑 Status: <b>VIP</b>\n"
+
+        f"💰 Sarflandi: "
+        f"<b>{VIP_PRICE_COINS:,} 🪙</b>\n"
+
+        f"💰 Qolgan balans: "
+        f"<b>{new_balance:,} 🪙</b>"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="👑 VIP haqida",
+                    callback_data="vip"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🏠 Asosiy menyu",
+                    callback_data="back_main"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer(
+        "👑 VIP faollashtirildi!"
+    )
+
+
+# ============================================================
+# /BALANCE
+# ============================================================
+
+@dp.message(
+    Command("balance")
+)
+async def balance_command(
+    message: Message
+):
+
+    user_id = message.from_user.id
+
+    balance = get_balance(
+        user_id
+    )
+
+    await message.answer(
+        "💰 <b>Balansingiz</b>\n\n"
+        f"🪙 <b>{balance:,}</b> tanga",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
+    )
+
+
+# ============================================================
+# /VIP
+# ============================================================
+
+@dp.message(
+    Command("vip")
+)
+async def vip_command(
+    message: Message
+):
+
+    user_id = message.from_user.id
+
+    if is_vip(
+        user_id
+    ):
+
+        await message.answer(
+            "👑 <b>Siz VIP foydalanuvchisiz!</b>",
+            reply_markup=main_menu(),
+            parse_mode="HTML"
+        )
+
+        return
+
+    balance = get_balance(
+        user_id
+    )
+
+    await message.answer(
+        "👑 <b>VIP</b>\n\n"
+        f"💰 Narxi: <b>{VIP_PRICE_COINS:,} 🪙</b>\n"
+        f"💰 Balansingiz: <b>{balance:,} 🪙</b>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="👑 VIP sotib olish",
+                        callback_data="vip"
+                    )
+                ]
+            ]
+        ),
+        parse_mode="HTML"
+    )
