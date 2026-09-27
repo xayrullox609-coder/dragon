@@ -8,6 +8,8 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    LabeledPrice,
+    PreCheckoutQuery,
 )
 
 from config import (
@@ -24,6 +26,8 @@ from database import (
     add_user,
     get_user,
     get_balance,
+    add_coins,
+    save_star_purchase,
     get_top_users,
 )
 
@@ -52,12 +56,24 @@ dp = Dispatcher()
 
 
 # ============================================================
+# STARS PAKETLARI
+# ============================================================
+
+STAR_PACKAGES = {
+    1: 10,
+    10: 100,
+    50: 500,
+    100: 1000,
+}
+
+
+# ============================================================
 # ASOSIY MENYU
 # ============================================================
 
 def main_menu():
 
-    keyboard = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -110,11 +126,9 @@ def main_menu():
         ]
     )
 
-    return keyboard
-
 
 # ============================================================
-# ORQAGA TUGMASI
+# ORQAGA
 # ============================================================
 
 def back_menu():
@@ -136,7 +150,9 @@ def back_menu():
 # ============================================================
 
 @dp.message(CommandStart())
-async def start_handler(message: Message):
+async def start_handler(
+    message: Message
+):
 
     user = message.from_user
 
@@ -156,8 +172,8 @@ async def start_handler(message: Message):
         "👤 Obunachi\n"
         "❤️ Reaksiya\n"
         "👁 Ko‘rish\n\n"
-        "💰 Balansingizni to‘ldirib, kerakli xizmatni "
-        "tanlang."
+        "💰 Balansingizni to‘ldiring va kerakli "
+        "xizmatni tanlang."
     )
 
     await message.answer(
@@ -168,17 +184,19 @@ async def start_handler(message: Message):
 
 
 # ============================================================
-# /ID
+# ID
 # ============================================================
 
 @dp.message(Command("id"))
-async def id_handler(message: Message):
+async def id_handler(
+    message: Message
+):
 
     if not message.from_user:
         return
 
     await message.answer(
-        f"🆔 Sizning Telegram ID'ingiz:\n\n"
+        "🆔 Sizning Telegram ID'ingiz:\n\n"
         f"<code>{message.from_user.id}</code>",
         parse_mode="HTML"
     )
@@ -300,6 +318,256 @@ async def stars_handler(
 
 
 # ============================================================
+# STARS INVOICE YUBORISH
+# ============================================================
+
+@dp.callback_query(
+    F.data.startswith("buy_stars_")
+)
+async def buy_stars_handler(
+    callback: CallbackQuery
+):
+
+    user = callback.from_user
+
+    try:
+        stars = int(
+            callback.data.replace(
+                "buy_stars_",
+                ""
+            )
+        )
+
+    except ValueError:
+
+        await callback.answer(
+            "❌ Paket xatosi.",
+            show_alert=True
+        )
+
+        return
+
+    if stars not in STAR_PACKAGES:
+
+        await callback.answer(
+            "❌ Bunday paket mavjud emas.",
+            show_alert=True
+        )
+
+        return
+
+    coins = STAR_PACKAGES[stars]
+
+    payload = (
+        f"coins_{user.id}_{stars}_{coins}"
+    )
+
+    prices = [
+        LabeledPrice(
+            label=f"{coins:,} 🪙 Tanga",
+            amount=stars
+        )
+    ]
+
+    await bot.send_invoice(
+        chat_id=user.id,
+        title=f"{coins:,} 🪙 Tanga",
+        description=(
+            f"{stars} Telegram Stars evaziga "
+            f"{coins:,} tanga olasiz."
+        ),
+        payload=payload,
+        currency="XTR",
+        prices=prices
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# PRE-CHECKOUT
+# ============================================================
+
+@dp.pre_checkout_query()
+async def pre_checkout_handler(
+    query: PreCheckoutQuery
+):
+
+    payload = query.invoice_payload
+
+    if not payload.startswith("coins_"):
+
+        await query.answer(
+            ok=False,
+            error_message="❌ To‘lov ma'lumotlari noto‘g‘ri."
+        )
+
+        return
+
+    try:
+        parts = payload.split("_")
+
+        user_id = int(parts[1])
+        stars = int(parts[2])
+        coins = int(parts[3])
+
+    except (
+        ValueError,
+        IndexError
+    ):
+
+        await query.answer(
+            ok=False,
+            error_message="❌ To‘lov ma'lumotlari buzilgan."
+        )
+
+        return
+
+    if user_id != query.from_user.id:
+
+        await query.answer(
+            ok=False,
+            error_message="❌ Bu to‘lov sizga tegishli emas."
+        )
+
+        return
+
+    if stars not in STAR_PACKAGES:
+
+        await query.answer(
+            ok=False,
+            error_message="❌ Stars paketi topilmadi."
+        )
+
+        return
+
+    if STAR_PACKAGES[stars] != coins:
+
+        await query.answer(
+            ok=False,
+            error_message="❌ Tanga miqdori noto‘g‘ri."
+        )
+
+        return
+
+    await query.answer(
+        ok=True
+    )
+
+
+# ============================================================
+# MUVAFFAQIYATLI TO‘LOV
+# ============================================================
+
+@dp.message(
+    F.successful_payment
+)
+async def successful_payment_handler(
+    message: Message
+):
+
+    payment = message.successful_payment
+
+    if not payment:
+        return
+
+    payload = payment.invoice_payload
+
+    try:
+        parts = payload.split("_")
+
+        user_id = int(parts[1])
+        stars = int(parts[2])
+        coins = int(parts[3])
+
+    except (
+        ValueError,
+        IndexError
+    ):
+
+        logger.error(
+            "Noto‘g‘ri payment payload: %s",
+            payload
+        )
+
+        await message.answer(
+            "❌ To‘lov ma'lumotlarida xatolik yuz berdi."
+        )
+
+        return
+
+    if user_id != message.from_user.id:
+
+        logger.warning(
+            "Payment user ID mos kelmadi."
+        )
+
+        return
+
+    if stars not in STAR_PACKAGES:
+
+        logger.warning(
+            "Noma'lum Stars paketi: %s",
+            stars
+        )
+
+        return
+
+    if STAR_PACKAGES[stars] != coins:
+
+        logger.warning(
+            "Stars/coins mos kelmadi."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # TANGANI BALANSGA QO‘SHISH
+    # --------------------------------------------------------
+
+    add_coins(
+        telegram_id=user_id,
+        amount=coins
+    )
+
+    # --------------------------------------------------------
+    # TO‘LOVNI BAZAGA SAQLASH
+    # --------------------------------------------------------
+
+    save_star_purchase(
+        telegram_id=user_id,
+        stars=stars,
+        coins=coins,
+        telegram_payment_charge_id=(
+            payment.telegram_payment_charge_id
+        ),
+        provider_payment_charge_id=(
+            payment.provider_payment_charge_id
+        )
+    )
+
+    new_balance = get_balance(
+        user_id
+    )
+
+    await message.answer(
+        "✅ <b>To‘lov muvaffaqiyatli!</b>\n\n"
+        f"⭐ To‘langan: <b>{stars} Stars</b>\n"
+        f"🪙 Qo‘shildi: <b>{coins:,} tanga</b>\n\n"
+        f"💰 Yangi balans: <b>{new_balance:,} tanga</b>",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
+    )
+
+    logger.info(
+        "Payment: user=%s stars=%s coins=%s",
+        user_id,
+        stars,
+        coins
+    )
+
+
+# ============================================================
 # XIZMAT TANLASH
 # ============================================================
 
@@ -323,9 +591,8 @@ async def service_handler(
 
     text = (
         f"<b>{service_name}</b>\n\n"
-        "📌 Bu xizmat uchun buyurtma berish "
-        "bo‘limi keyingi bosqichda ulanadi.\n\n"
-        "Hozircha xizmat tanlandi."
+        "📌 Xizmat tanlandi.\n\n"
+        "Buyurtma berish uchun tugmani bosing."
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -355,7 +622,7 @@ async def service_handler(
 
 
 # ============================================================
-# BUYURTMA HOZIRCHA
+# BUYURTMA
 # ============================================================
 
 @dp.callback_query(
@@ -378,15 +645,13 @@ async def order_handler(
 
     text = (
         f"📦 <b>{service_name}</b>\n\n"
-        "Buyurtma berish tizimi keyingi bosqichda "
-        "to‘liq ulanadi.\n\n"
-        "Unda:\n"
-        "🔗 Havola yuborish\n"
-        "🔢 Miqdor tanlash\n"
-        "💰 Narx hisoblash\n"
-        "✅ Buyurtmani tasdiqlash\n"
-        "📊 Buyurtma holatini ko‘rish\n\n"
-        "hammasi ishlaydi."
+        "Buyurtma berish tizimi keyingi "
+        "bosqichda ulanadi.\n\n"
+        "🔗 Havola\n"
+        "🔢 Miqdor\n"
+        "💰 Narx\n"
+        "✅ Tasdiqlash\n"
+        "📊 Status"
     )
 
     await callback.message.edit_text(
@@ -414,7 +679,7 @@ async def rating_handler(
     if not users:
 
         text = (
-            "🏆 <b>Reyting</b>\n\n"
+            "🏆 <b>TOP 10</b>\n\n"
             "Hozircha reyting bo‘sh."
         )
 
@@ -465,10 +730,17 @@ async def referral_handler(
 
     me = await bot.get_me()
 
-    username = me.username
+    if not me.username:
+
+        await callback.answer(
+            "❌ Bot username topilmadi.",
+            show_alert=True
+        )
+
+        return
 
     link = (
-        f"https://t.me/{username}"
+        f"https://t.me/{me.username}"
         f"?start=ref_{user.id}"
     )
 
@@ -479,13 +751,14 @@ async def referral_handler(
     count = 0
 
     if db_user:
-        count = db_user["referral_count"] or 0
+        count = (
+            db_user["referral_count"] or 0
+        )
 
     text = (
         "👥 <b>Do‘stlarni taklif qilish</b>\n\n"
-        f"🎁 Har bir taklif uchun: "
-        f"<b>{REFERRAL_BONUS} 🪙</b>\n\n"
-        f"👥 Taklif qilganlaringiz: <b>{count}</b>\n\n"
+        f"🎁 Bonus: <b>{REFERRAL_BONUS} 🪙</b>\n"
+        f"👥 Takliflar: <b>{count}</b>\n\n"
         "🔗 Sizning havolangiz:\n"
         f"<code>{link}</code>"
     )
@@ -510,9 +783,7 @@ async def vip_handler(
 
     text = (
         "👑 <b>VIP</b>\n\n"
-        "VIP tizimi keyingi bosqichda ulanadi.\n\n"
-        "VIP orqali maxsus imkoniyatlar "
-        "berishimiz mumkin."
+        "VIP tizimi keyingi bosqichda ulanadi."
     )
 
     await callback.message.edit_text(
@@ -525,7 +796,7 @@ async def vip_handler(
 
 
 # ============================================================
-# BUYURTMALARIM
+# BUYURTMALAR
 # ============================================================
 
 @dp.callback_query(F.data == "my_orders")
@@ -535,8 +806,8 @@ async def my_orders_handler(
 
     text = (
         "📦 <b>Buyurtmalarim</b>\n\n"
-        "Sizning buyurtmalaringiz keyingi "
-        "bosqichda shu yerda ko‘rsatiladi."
+        "Buyurtmalar ro‘yxati keyingi "
+        "bosqichda ulanadi."
     )
 
     await callback.message.edit_text(
@@ -557,13 +828,9 @@ async def back_main_handler(
     callback: CallbackQuery
 ):
 
-    text = (
-        "🏠 <b>Asosiy menyu</b>\n\n"
-        "Kerakli xizmatni tanlang:"
-    )
-
     await callback.message.edit_text(
-        text,
+        "🏠 <b>Asosiy menyu</b>\n\n"
+        "Kerakli xizmatni tanlang:",
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
@@ -572,7 +839,7 @@ async def back_main_handler(
 
 
 # ============================================================
-# ADMIN TEKSHIRISH
+# ADMIN
 # ============================================================
 
 def is_admin(
@@ -581,10 +848,6 @@ def is_admin(
 
     return telegram_id in ADMIN_IDS
 
-
-# ============================================================
-# /ADMIN
-# ============================================================
 
 @dp.message(Command("admin"))
 async def admin_handler(
@@ -604,20 +867,16 @@ async def admin_handler(
 
         return
 
-    text = (
-        "🛠 <b>ADMIN PANEL</b>\n\n"
-        "Admin panel funksiyalari keyingi "
-        "bosqichlarda ulanadi."
-    )
-
     await message.answer(
-        text,
+        "🛠 <b>ADMIN PANEL</b>\n\n"
+        "Admin funksiyalari keyingi "
+        "bosqichlarda ulanadi.",
         parse_mode="HTML"
     )
 
 
 # ============================================================
-# UNKNOWN COMMAND
+# UNKNOWN
 # ============================================================
 
 @dp.message()
@@ -632,13 +891,13 @@ async def unknown_message(
 
 
 # ============================================================
-# STARTUP
+# MAIN
 # ============================================================
 
 async def main():
 
     logger.info(
-        "Database ishga tushirilmoqda..."
+        "Database ishga tushmoqda..."
     )
 
     init_db()
@@ -665,6 +924,7 @@ async def main():
 if __name__ == "__main__":
 
     try:
+
         asyncio.run(
             main()
         )
