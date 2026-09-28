@@ -3270,7 +3270,358 @@ async def main():
         "⭐ Stars kursi: 1 ⭐ = %s 🪙",
         STARS_TO_COINS
     )
+# ============================================================
+# 📋 VAZIFA BAJARISH TIZIMI
+# ============================================================
 
+from aiogram import F
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+
+# ------------------------------------------------------------
+# Vazifa menyusi
+# ------------------------------------------------------------
+
+@dp.message(F.text == "📋 Vazifa bajarish")
+async def task_menu(message):
+    user_id = message.from_user.id
+
+    tasks = get_available_tasks(user_id, limit=20)
+
+    if not tasks:
+        await message.answer(
+            "📋 <b>Vazifalar</b>\n\n"
+            "Hozircha bajarish uchun vazifalar mavjud emas.\n\n"
+            "🔄 Keyinroq qayta tekshirib ko‘ring.",
+            parse_mode="HTML"
+        )
+        return
+
+    keyboard = []
+
+    for task in tasks:
+        service = task["service"]
+
+        if service in ("subscribers", "obuna"):
+            title = "👤 Obuna"
+        elif service in ("reactions", "reaksiya"):
+            title = "❤️ Reaksiya"
+        elif service in ("views", "ko'rish", "korish"):
+            title = "👁 Ko‘rish"
+        else:
+            title = "📋 Vazifa"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{title} • +{task['reward']} 🪙",
+                callback_data=f"task:{task['id']}"
+            )
+        ])
+
+    await message.answer(
+        "📋 <b>Mavjud vazifalar</b>\n\n"
+        "Vazifani tanlang:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="HTML"
+    )
+
+
+# ------------------------------------------------------------
+# Vazifani ochish
+# ------------------------------------------------------------
+
+@dp.callback_query(F.data.startswith("task:"))
+async def open_task(callback):
+    user_id = callback.from_user.id
+
+    try:
+        task_id = int(callback.data.split(":")[1])
+    except:
+        await callback.answer("❌ Vazifa topilmadi", show_alert=True)
+        return
+
+    task = get_task(task_id)
+
+    if not task:
+        await callback.answer(
+            "❌ Bu vazifa mavjud emas.",
+            show_alert=True
+        )
+        return
+
+    if task["status"] != "active":
+        await callback.answer(
+            "❌ Bu vazifa yopilgan.",
+            show_alert=True
+        )
+        return
+
+    if int(task["owner_id"]) == int(user_id):
+        await callback.answer(
+            "❌ O‘z vazifangizni bajara olmaysiz.",
+            show_alert=True
+        )
+        return
+
+    if has_completed_task(task_id, user_id):
+        await callback.answer(
+            "❌ Siz bu vazifani allaqachon bajargansiz.",
+            show_alert=True
+        )
+        return
+
+    service = task["service"]
+
+    if service in ("subscribers", "obuna"):
+        service_name = "👤 Kanalga obuna"
+
+    elif service in ("reactions", "reaksiya"):
+        service_name = "❤️ Reaksiya"
+
+    elif service in ("views", "ko'rish", "korish"):
+        service_name = "👁 Ko‘rish"
+
+    else:
+        service_name = "📋 Vazifa"
+
+    target = task["target"]
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔗 Vazifani bajarish",
+                    url=target
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Tekshirish",
+                    callback_data=f"checktask:{task_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Vazifalar",
+                    callback_data="tasks_back"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        f"📋 <b>Vazifa #{task_id}</b>\n\n"
+        f"📌 Turi: <b>{service_name}</b>\n"
+        f"🎯 Qolgan: <b>{task['remaining']}</b>\n"
+        f"💰 Mukofot: <b>+{task['reward']} 🪙</b>\n\n"
+        f"1️⃣ «Vazifani bajarish» tugmasini bosing.\n"
+        f"2️⃣ Vazifani bajaring.\n"
+        f"3️⃣ «Tekshirish» tugmasini bosing.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ------------------------------------------------------------
+# Vazifani tekshirish
+# ------------------------------------------------------------
+
+@dp.callback_query(F.data.startswith("checktask:"))
+async def check_task(callback):
+    user_id = callback.from_user.id
+
+    try:
+        task_id = int(callback.data.split(":")[1])
+    except:
+        await callback.answer(
+            "❌ Vazifa topilmadi.",
+            show_alert=True
+        )
+        return
+
+    task = get_task(task_id)
+
+    if not task:
+        await callback.answer(
+            "❌ Vazifa topilmadi.",
+            show_alert=True
+        )
+        return
+
+    if task["status"] != "active":
+        await callback.answer(
+            "❌ Bu vazifa allaqachon yopilgan.",
+            show_alert=True
+        )
+        return
+
+    if int(task["owner_id"]) == int(user_id):
+        await callback.answer(
+            "❌ O‘z vazifangizni bajara olmaysiz.",
+            show_alert=True
+        )
+        return
+
+    if has_completed_task(task_id, user_id):
+        await callback.answer(
+            "❌ Siz bu vazifani allaqachon bajargansiz.",
+            show_alert=True
+        )
+        return
+
+    service = task["service"]
+
+    # --------------------------------------------------------
+    # OBUNA TEKSHIRISH
+    # --------------------------------------------------------
+
+    if service in ("subscribers", "obuna"):
+
+        target = task["target"]
+
+        try:
+            member = await bot.get_chat_member(
+                chat_id=target,
+                user_id=user_id
+            )
+
+            if member.status in (
+                "member",
+                "administrator",
+                "creator"
+            ):
+                result = complete_task(
+                    task_id,
+                    user_id
+                )
+
+                if result.get("success"):
+                    await callback.message.edit_text(
+                        "✅ <b>Vazifa bajarildi!</b>\n\n"
+                        f"🎁 Mukofot: <b>+{task['reward']} 🪙</b>\n"
+                        f"💰 Balansingiz: <b>{result['balance']} 🪙</b>",
+                        parse_mode="HTML"
+                    )
+                    await callback.answer("✅ Mukofot berildi!")
+                else:
+                    await callback.answer(
+                        result.get(
+                            "message",
+                            "❌ Vazifani bajarib bo‘lmadi."
+                        ),
+                        show_alert=True
+                    )
+
+            else:
+                await callback.answer(
+                    "❌ Siz hali kanalga obuna bo‘lmagansiz.",
+                    show_alert=True
+                )
+
+        except Exception:
+            await callback.answer(
+                "❌ Obunani tekshirib bo‘lmadi.\n"
+                "Bot kanalga admin qilib qo‘yilganini tekshiring.",
+                show_alert=True
+            )
+
+        return
+
+    # --------------------------------------------------------
+    # REAKSIYA
+    # --------------------------------------------------------
+
+    if service in ("reactions", "reaksiya"):
+
+        await callback.answer(
+            "⚠️ Reaksiyani foydalanuvchi tomonidan "
+            "ishonchli tekshirish Telegram Bot API orqali "
+            "har doim ham mumkin emas.",
+            show_alert=True
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # KO‘RISH
+    # --------------------------------------------------------
+
+    if service in ("views", "ko'rish", "korish"):
+
+        await callback.answer(
+            "⚠️ Telegram ko‘rishlarni aynan qaysi "
+            "foydalanuvchi bajarganini Bot API orqali "
+            "ishonchli bermaydi.",
+            show_alert=True
+        )
+
+        return
+
+    await callback.answer(
+        "❌ Noma’lum vazifa turi.",
+        show_alert=True
+    )
+
+
+# ------------------------------------------------------------
+# Vazifalar ro‘yxatiga qaytish
+# ------------------------------------------------------------
+
+@dp.callback_query(F.data == "tasks_back")
+async def tasks_back(callback):
+    user_id = callback.from_user.id
+
+    tasks = get_available_tasks(
+        user_id,
+        limit=20
+    )
+
+    if not tasks:
+        await callback.message.edit_text(
+            "📋 <b>Vazifalar</b>\n\n"
+            "Hozircha bajarish uchun vazifalar yo‘q.",
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    keyboard = []
+
+    for task in tasks:
+
+        service = task["service"]
+
+        if service in ("subscribers", "obuna"):
+            title = "👤 Obuna"
+
+        elif service in ("reactions", "reaksiya"):
+            title = "❤️ Reaksiya"
+
+        elif service in ("views", "ko'rish", "korish"):
+            title = "👁 Ko‘rish"
+
+        else:
+            title = "📋 Vazifa"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{title} • +{task['reward']} 🪙",
+                callback_data=f"task:{task['id']}"
+            )
+        ])
+
+    await callback.message.edit_text(
+        "📋 <b>Mavjud vazifalar</b>\n\n"
+        "Vazifani tanlang:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=keyboard
+        ),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
     try:
 
         await dp.start_polling(
