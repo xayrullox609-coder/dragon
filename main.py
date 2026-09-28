@@ -50,6 +50,7 @@ from database import (
     set_referrer,
     add_referral,
     add_admin_log,
+get_pending_orders,
 )
 
 
@@ -2261,12 +2262,1031 @@ async def vip_command(
         parse_mode="HTML"
     )
 # ============================================================
-# RUN
+# ADMIN PANEL
 # ============================================================
+
+@dp.message(Command("admin"))
+async def admin_command(
+    message: Message
+):
+
+    user_id = message.from_user.id
+
+    if not is_admin(user_id):
+
+        await message.answer(
+            "❌ Siz admin emassiz."
+        )
+
+        return
+
+    await message.answer(
+        "🛠 <b>ADMIN PANEL</b>\n\n"
+        "Kerakli bo‘limni tanlang:",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
+    )
+
+
+# ============================================================
+# ADMIN PANEL CALLBACK
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_panel"
+)
+async def admin_panel_callback(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    await state.clear()
+
+    await callback.message.edit_text(
+        "🛠 <b>ADMIN PANEL</b>\n\n"
+        "Kerakli bo‘limni tanlang:",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN STATISTIKA
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_stats"
+)
+async def admin_stats_handler(
+    callback: CallbackQuery
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    users = get_user_count()
+
+    orders = get_order_count()
+
+    pending = get_pending_order_count()
+
+    coins = get_total_coins()
+
+    text = (
+        "📊 <b>BOT STATISTIKASI</b>\n\n"
+
+        f"👥 Foydalanuvchilar: "
+        f"<b>{users:,}</b>\n\n"
+
+        f"📦 Jami buyurtmalar: "
+        f"<b>{orders:,}</b>\n\n"
+
+        f"⏳ Kutilayotgan buyurtmalar: "
+        f"<b>{pending:,}</b>\n\n"
+
+        f"🪙 Foydalanuvchilardagi jami tanga: "
+        f"<b>{coins:,}</b>"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Yangilash",
+                    callback_data="admin_stats"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Admin panel",
+                    callback_data="admin_panel"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN FOYDALANUVCHILAR
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_users"
+)
+async def admin_users_handler(
+    callback: CallbackQuery
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    users = get_all_users()
+
+    text = (
+        "👥 <b>FOYDALANUVCHILAR</b>\n\n"
+        f"Jami: <b>{len(users):,}</b>\n\n"
+    )
+
+    # Oxirgi 10 ta foydalanuvchi
+    for user in users[-10:]:
+
+        name = (
+            user["first_name"]
+            or "Nomsiz"
+        )
+
+        username = user["username"]
+
+        if username:
+
+            username_text = (
+                f"@{username}"
+            )
+
+        else:
+
+            username_text = "username yo‘q"
+
+        coins = int(
+            user["coins"] or 0
+        )
+
+        text += (
+            f"👤 {name}\n"
+            f"🆔 <code>{user['telegram_id']}</code>\n"
+            f"🔗 {username_text}\n"
+            f"🪙 {coins:,}\n"
+            f"━━━━━━━━━━━━\n"
+        )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Admin panel",
+                    callback_data="admin_panel"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN TANGA BERISH
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_add_coins"
+)
+async def admin_add_coins_start(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    await state.clear()
+
+    await state.update_data(
+        admin_action="add"
+    )
+
+    await state.set_state(
+        AdminState.waiting_user_id
+    )
+
+    await callback.message.edit_text(
+        "💰 <b>TANGA BERISH</b>\n\n"
+        "Tanga beriladigan foydalanuvchining "
+        "Telegram ID raqamini yuboring.\n\n"
+        "Masalan:\n"
+        "<code>123456789</code>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ Bekor qilish",
+                        callback_data="admin_cancel"
+                    )
+                ]
+            ]
+        ),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN TANGA OLISH
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_remove_coins"
+)
+async def admin_remove_coins_start(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    await state.clear()
+
+    await state.update_data(
+        admin_action="remove"
+    )
+
+    await state.set_state(
+        AdminState.waiting_user_id
+    )
+
+    await callback.message.edit_text(
+        "➖ <b>TANGA OLISH</b>\n\n"
+        "Foydalanuvchining Telegram ID "
+        "raqamini yuboring.\n\n"
+        "Masalan:\n"
+        "<code>123456789</code>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ Bekor qilish",
+                        callback_data="admin_cancel"
+                    )
+                ]
+            ]
+        ),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# ADMIN USER ID QABUL QILISH
+# ============================================================
+
+@dp.message(
+    AdminState.waiting_user_id
+)
+async def admin_user_id_handler(
+    message: Message,
+    state: FSMContext
+):
+
+    if not is_admin(
+        message.from_user.id
+    ):
+
+        return
+
+    if not message.text:
+
+        await message.answer(
+            "❌ ID raqamini yuboring."
+        )
+
+        return
+
+    raw_id = message.text.strip()
+
+    if not raw_id.isdigit():
+
+        await message.answer(
+            "❌ ID faqat raqamlardan iborat bo‘lishi kerak."
+        )
+
+        return
+
+    user_id = int(
+        raw_id
+    )
+
+    user = get_user(
+        user_id
+    )
+
+    if not user:
+
+        await message.answer(
+            "❌ Bu ID bilan foydalanuvchi topilmadi.\n\n"
+            "Foydalanuvchi avval botga /start bosgan "
+            "bo‘lishi kerak."
+        )
+
+        return
+
+    data = await state.get_data()
+
+    action = data.get(
+        "admin_action"
+    )
+
+    await state.update_data(
+        target_user_id=user_id
+    )
+
+    await state.set_state(
+        AdminState.waiting_coins
+    )
+
+    if action == "add":
+
+        title = "💰 TANGA BERISH"
+
+    else:
+
+        title = "➖ TANGA OLISH"
+
+    balance = get_balance(
+        user_id
+    )
+
+    name = (
+        user["first_name"]
+        or "Foydalanuvchi"
+    )
+
+    await message.answer(
+        f"<b>{title}</b>\n\n"
+        f"👤 Foydalanuvchi: <b>{name}</b>\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"💰 Hozirgi balans: <b>{balance:,} 🪙</b>\n\n"
+        "🪙 Qancha tanga kiritishni yuboring:",
+        parse_mode="HTML"
+    )
+
+
+# ============================================================
+# ADMIN TANGA MIQDORI
+# ============================================================
+
+@dp.message(
+    AdminState.waiting_coins
+)
+async def admin_coins_handler(
+    message: Message,
+    state: FSMContext
+):
+
+    if not is_admin(
+        message.from_user.id
+    ):
+
+        return
+
+    if not message.text:
+
+        await message.answer(
+            "❌ Miqdorni raqam bilan yuboring."
+        )
+
+        return
+
+    raw_amount = message.text.strip()
+
+    if not raw_amount.isdigit():
+
+        await message.answer(
+            "❌ Miqdor faqat raqam bo‘lishi kerak."
+        )
+
+        return
+
+    amount = int(
+        raw_amount
+    )
+
+    if amount <= 0:
+
+        await message.answer(
+            "❌ Miqdor 0 dan katta bo‘lishi kerak."
+        )
+
+        return
+
+    if amount > 1000000000:
+
+        await message.answer(
+            "❌ Juda katta miqdor."
+        )
+
+        return
+
+    data = await state.get_data()
+
+    target_user_id = data.get(
+        "target_user_id"
+    )
+
+    action = data.get(
+        "admin_action"
+    )
+
+    if not target_user_id:
+
+        await state.clear()
+
+        await message.answer(
+            "❌ Foydalanuvchi topilmadi.",
+            reply_markup=admin_menu()
+        )
+
+        return
+
+    if action == "add":
+
+        success = add_coins(
+            telegram_id=target_user_id,
+            amount=amount,
+            history_type="admin_add",
+            description=(
+                f"Admin tomonidan berildi: "
+                f"{message.from_user.id}"
+            )
+        )
+
+        if success:
+
+            add_admin_log(
+                admin_id=message.from_user.id,
+                action="add_coins",
+                target_user=target_user_id,
+                amount=amount
+            )
+
+            new_balance = get_balance(
+                target_user_id
+            )
+
+            await message.answer(
+                "✅ <b>Tanga berildi!</b>\n\n"
+                f"👤 ID: <code>{target_user_id}</code>\n"
+                f"➕ Qo‘shildi: <b>{amount:,} 🪙</b>\n"
+                f"💰 Yangi balans: "
+                f"<b>{new_balance:,} 🪙</b>",
+                reply_markup=admin_menu(),
+                parse_mode="HTML"
+            )
+
+            try:
+
+                await bot.send_message(
+                    target_user_id,
+                    "🎁 <b>Balansingiz to‘ldirildi!</b>\n\n"
+                    f"➕ Qo‘shildi: <b>{amount:,} 🪙</b>\n"
+                    f"💰 Yangi balans: "
+                    f"<b>{new_balance:,} 🪙</b>",
+                    parse_mode="HTML"
+                )
+
+            except Exception:
+
+                pass
+
+        else:
+
+            await message.answer(
+                "❌ Tanga berishda xatolik.",
+                reply_markup=admin_menu()
+            )
+
+    else:
+
+        success = remove_coins(
+            telegram_id=target_user_id,
+            amount=amount,
+            history_type="admin_remove",
+            description=(
+                f"Admin tomonidan olindi: "
+                f"{message.from_user.id}"
+            )
+        )
+
+        if success:
+
+            add_admin_log(
+                admin_id=message.from_user.id,
+                action="remove_coins",
+                target_user=target_user_id,
+                amount=amount
+            )
+
+            new_balance = get_balance(
+                target_user_id
+            )
+
+            await message.answer(
+                "✅ <b>Tanga olindi!</b>\n\n"
+                f"👤 ID: <code>{target_user_id}</code>\n"
+                f"➖ Olingan: <b>{amount:,} 🪙</b>\n"
+                f"💰 Yangi balans: "
+                f"<b>{new_balance:,} 🪙</b>",
+                reply_markup=admin_menu(),
+                parse_mode="HTML"
+            )
+
+            try:
+
+                await bot.send_message(
+                    target_user_id,
+                    "⚠️ <b>Balansingiz o‘zgartirildi.</b>\n\n"
+                    f"➖ Olingan: <b>{amount:,} 🪙</b>\n"
+                    f"💰 Yangi balans: "
+                    f"<b>{new_balance:,} 🪙</b>",
+                    parse_mode="HTML"
+                )
+
+            except Exception:
+
+                pass
+
+        else:
+
+            await message.answer(
+                "❌ Balansda yetarli tanga yo‘q.",
+                reply_markup=admin_menu()
+            )
+
+    await state.clear()
+
+
+# ============================================================
+# ADMIN NARXLAR
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_prices"
+)
+async def admin_prices_handler(
+    callback: CallbackQuery
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    subscribers = get_service_price(
+        "subscribers",
+        100
+    )
+
+    reactions = get_service_price(
+        "reactions",
+        200
+    )
+
+    views = get_service_price(
+        "views",
+        100
+    )
+
+    text = (
+        "💵 <b>XIZMAT NARXLARI</b>\n\n"
+
+        "Narxlar 1000 dona uchun.\n\n"
+
+        f"👤 Obunachi: "
+        f"<b>{subscribers:,} 🪙</b>\n"
+
+        f"❤️ Reaksiya: "
+        f"<b>{reactions:,} 🪙</b>\n"
+
+        f"👁 Ko‘rish: "
+        f"<b>{views:,} 🪙</b>"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="👤 Obunachi narxi",
+                    callback_data="price_subscribers"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="❤️ Reaksiya narxi",
+                    callback_data="price_reactions"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="👁 Ko‘rish narxi",
+                    callback_data="price_views"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Admin panel",
+                    callback_data="admin_panel"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# NARX O'ZGARTIRISH
+# ============================================================
+
+@dp.callback_query(
+    F.data.startswith("price_")
+)
+async def admin_price_start(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    service = callback.data.replace(
+        "price_",
+        "",
+        1
+    )
+
+    if service not in SERVICES:
+
+        await callback.answer(
+            "❌ Xizmat topilmadi.",
+            show_alert=True
+        )
+
+        return
+
+    await state.clear()
+
+    await state.update_data(
+        price_service=service
+    )
+
+    await state.set_state(
+        AdminState.waiting_price
+    )
+
+    service_name = SERVICES[service]["name"]
+
+    old_price = get_service_price(
+        service,
+        SERVICES[service]["price_default"]
+    )
+
+    await callback.message.edit_text(
+        f"💵 <b>{service_name}</b>\n\n"
+        f"Eski narx: <b>{old_price:,} 🪙</b> / 1000\n\n"
+        "Yangi narxni yuboring.\n\n"
+        "Masalan:\n"
+        "<code>150</code>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ Bekor qilish",
+                        callback_data="admin_cancel"
+                    )
+                ]
+            ]
+        ),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ============================================================
+# YANGI NARX
+# ============================================================
+
+@dp.message(
+    AdminState.waiting_price
+)
+async def admin_price_handler(
+    message: Message,
+    state: FSMContext
+):
+
+    if not is_admin(
+        message.from_user.id
+    ):
+
+        return
+
+    if not message.text:
+
+        await message.answer(
+            "❌ Narxni raqam bilan yuboring."
+        )
+
+        return
+
+    raw_price = message.text.strip()
+
+    if not raw_price.isdigit():
+
+        await message.answer(
+            "❌ Narx faqat raqam bo‘lishi kerak."
+        )
+
+        return
+
+    price = int(
+        raw_price
+    )
+
+    if price <= 0:
+
+        await message.answer(
+            "❌ Narx 0 dan katta bo‘lishi kerak."
+        )
+
+        return
+
+    if price > 100000000:
+
+        await message.answer(
+            "❌ Narx juda katta."
+        )
+
+        return
+
+    data = await state.get_data()
+
+    service = data.get(
+        "price_service"
+    )
+
+    if service not in SERVICES:
+
+        await state.clear()
+
+        await message.answer(
+            "❌ Xizmat topilmadi.",
+            reply_markup=admin_menu()
+        )
+
+        return
+
+    set_service_price(
+        service,
+        price
+    )
+
+    add_admin_log(
+        admin_id=message.from_user.id,
+        action=f"price_{service}",
+        amount=price
+    )
+
+    service_name = SERVICES[service]["name"]
+
+    await state.clear()
+
+    await message.answer(
+        "✅ <b>Narx o‘zgartirildi!</b>\n\n"
+        f"🛠 Xizmat: <b>{service_name}</b>\n"
+        f"💰 Yangi narx: "
+        f"<b>{price:,} 🪙 / 1000</b>",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
+    )
+
+
+# ============================================================
+# ADMIN BUYURTMALAR
+# ============================================================
+
+@dp.callback_query(
+    F.data == "admin_orders"
+)
+async def admin_orders_handler(
+    callback: CallbackQuery
+):
+
+    if not is_admin(
+        callback.from_user.id
+    ):
+
+        await callback.answer(
+            "❌ Ruxsat yo‘q.",
+            show_alert=True
+        )
+
+        return
+
+    orders = get_pending_orders(
+        limit=20
+    )
+
+    if not orders:
+
+        text = (
+            "📦 <b>BUYURTMALAR</b>\n\n"
+            "⏳ Kutilayotgan buyurtmalar yo‘q."
+        )
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=back_button_admin(),
+            parse_mode="HTML"
+        )
+
+        await callback.answer()
+
+        return
+
+    text = (
+        "📦 <b>KUTILAYOTGAN BUYURTMALAR</b>\n\n"
+    )
+
+    buttons = []
+
+    for order in orders:
+
+        service = SERVICES.get(
+            order["service"],
+            {}
+        )
+
+        name = service.get(
+            "name",
+            order["service"]
+        )
+
+        text += (
+            f"🆔 <b>#{order['id']}</b> — "
+            f"{name}\n"
+            f"🔢 {order['quantity']:,} | "
+            f"💰 {order['price']:,} 🪙\n\n"
+        )
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📦 #{order['id']}",
+                    callback_data=(
+                        f"admin_order_{order['id']}"
+                    )
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Admin panel",
+                callback_data="admin_panel"
+            )
+        ]
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=buttons
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+
+# ==================================================================
+# BOTNI ISHGA TUSHIRISH
+# ============================================================
+
+async def main():
+
+    # Database
+    init_db()
+
+    # Boshlang‘ich xizmat narxlari
+    initialize_prices()
+
+    logger.info(
+        "🐉 Dragon Follow Bot ishga tushmoqda..."
+    )
+
+    logger.info(
+        "👥 Adminlar: %s",
+        ADMIN_IDS
+    )
+
+    logger.info(
+        "⭐ Stars kursi: 1 ⭐ = %s 🪙",
+        STARS_TO_COINS
+    )
+
+    try:
+
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types()
+        )
+
+    finally:
+
+        await bot.session.close()
+
 
 if __name__ == "__main__":
 
     try:
+
         asyncio.run(
             main()
         )
